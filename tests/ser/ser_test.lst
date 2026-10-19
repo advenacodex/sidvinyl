@@ -1,0 +1,195 @@
+ca65 V2.19 - Git 6bd01e8
+Main file   : ser_test.s
+Current file: ser_test.s
+
+000000r 1               ; ACIA receive reliability test (VICE / SwiftLink): the host sends a counting stream, the NMI poller
+000000r 1               ; stores it in a 2 KB ring, the main loop verifies it.  Variables are read through the VICE monitor.
+000000r 1               ACIA_DATA = $DE00
+000000r 1               ACIA_STAT = $DE01
+000000r 1               ACIA_CMD  = $DE02
+000000r 1               ACIA_CTRL = $DE03
+000000r 1               CIA2_TALO = $DD04
+000000r 1               CIA2_TAHI = $DD05
+000000r 1               CIA2_ICR  = $DD0D
+000000r 1               CIA2_CRA  = $DD0E
+000000r 1               RING      = $4000        ; 2 KB: $4000-$47FF
+000000r 1               .segment "LOADADDR"
+000000r 1  01 08                .word $0801
+000002r 1               .segment "STUB"
+000000r 1  rr rr                .word @next
+000002r 1  0A 00                .word 10
+000004r 1  9E 32 30 36          .byte $9E, "2061", 0
+000008r 1  31 00        
+00000Ar 1  00 00        @next:  .word 0
+00000Cr 1               .segment "ZEROPAGE"
+000000r 1  xx xx        rd:     .res 2
+000002r 1               .segment "BSS"
+000000r 1  xx xx xx     total:   .res 3
+000003r 1  xx           errors:  .res 1
+000004r 1  xx           dups:    .res 1
+000005r 1  xx           lost:    .res 1
+000006r 1  xx           ovr:     .res 1
+000007r 1  xx           phantom: .res 1
+000008r 1  xx           expect:  .res 1
+000009r 1  xx xx        nmis:    .res 2
+00000Br 1  xx xx        tmo: .res 2
+00000Dr 1  xx           txfail: .res 1
+00000Er 1  xx           txcnt: .res 1
+00000Fr 1  xx           firstbad: .res 1
+000010r 1  xx           firstexp: .res 1
+000011r 1  xx xx        firstpos: .res 2
+000013r 1               .segment "CODE"
+000000r 1  78           start:  sei
+000001r 1  A9 35                lda #$35
+000003r 1  85 01                sta $01
+000005r 1  A9 rr                lda #<nmi
+000007r 1  8D FA FF             sta $FFFA
+00000Ar 1  A9 rr                lda #>nmi
+00000Cr 1  8D FB FF             sta $FFFB
+00000Fr 1  A9 00                lda #0
+000011r 1  A2 00                ldx #0
+000013r 1  9D rr rr     @z:     sta total,x
+000016r 1  E8                   inx
+000017r 1  E0 14                cpx #20
+000019r 1  D0 F8                bne @z
+00001Br 1  8D 01 DE             sta ACIA_STAT          ; programmed reset
+00001Er 1  A9 1E                lda #$1E                ; 19200 (SwiftLink x2)
+000020r 1  8D 03 DE             sta ACIA_CTRL
+000023r 1  A9 0B                lda #$0B
+000025r 1  8D 02 DE             sta ACIA_CMD
+000028r 1  AD 01 DE             lda ACIA_STAT
+00002Br 1  AD 00 DE             lda ACIA_DATA
+00002Er 1  A9 00                lda #<RING
+000030r 1  85 rr                sta rd
+000032r 1  A9 40                lda #>RING
+000034r 1  85 rr                sta rd+1
+000036r 1  A9 00                lda #0
+000038r 1  8D rr rr             sta expect
+00003Br 1  A9 18                lda #24
+00003Dr 1  8D 04 DD             sta CIA2_TALO
+000040r 1  A9 01                lda #1
+000042r 1  8D 05 DD             sta CIA2_TAHI
+000045r 1  AD 0D DD             lda CIA2_ICR
+000048r 1  A9 81                lda #$81
+00004Ar 1  8D 0D DD             sta CIA2_ICR
+00004Dr 1  A9 11                lda #$11
+00004Fr 1  8D 0E DD             sta CIA2_CRA
+000052r 1                       ; VIC stress: 8 sprites on the same lines (worst-case DMA), sprite data pointers -> $2000
+000052r 1  A2 00                ldx #0
+000054r 1  8A           @sp:    txa
+000055r 1  0A                   asl
+000056r 1  A8                   tay
+000057r 1  A9 40                lda #(24+40)
+000059r 1  99 00 D0             sta $D000,y
+00005Cr 1  A9 64                lda #100
+00005Er 1  99 01 D0             sta $D001,y
+000061r 1  A9 80                lda #$80
+000063r 1  9D F8 07             sta $07F8,x
+000066r 1  E8                   inx
+000067r 1  E0 08                cpx #8
+000069r 1  D0 E9                bne @sp
+00006Br 1  A9 FF                lda #$FF
+00006Dr 1  8D 15 D0             sta $D015
+000070r 1  A9 7F                lda #$7F
+000072r 1  8D 0D DC             sta $DC0D
+000075r 1  AD 0D DC             lda $DC0D
+000078r 1  58                   cli
+000079r 1  AD rr rr     main:   lda st+2                ; consistent snapshot of the write pointer high byte
+00007Cr 1  C5 rr                cmp rd+1
+00007Er 1  D0 07                bne @avail
+000080r 1  AD rr rr             lda st+1
+000083r 1  C5 rr                cmp rd
+000085r 1  F0 F2                beq main
+000087r 1  A0 00        @avail: ldy #0
+000089r 1  B1 rr                lda (rd),y
+00008Br 1  CD rr rr             cmp expect
+00008Er 1  F0 21                beq @ok
+000090r 1  EE rr rr             inc errors
+000093r 1  AE rr rr             ldx errors
+000096r 1  E0 01                cpx #1
+000098r 1  D0 17                bne @ok
+00009Ar 1  8D rr rr             sta firstbad            ; remember the first anomaly
+00009Dr 1  AD rr rr             lda expect
+0000A0r 1  8D rr rr             sta firstexp
+0000A3r 1  AD rr rr             lda total
+0000A6r 1  8D rr rr             sta firstpos
+0000A9r 1  AD rr rr             lda total+1
+0000ACr 1  8D rr rr             sta firstpos+1
+0000AFr 1  B1 rr                lda (rd),y
+0000B1r 1  AA           @ok:    tax
+0000B2r 1  E8                   inx
+0000B3r 1  8E rr rr             stx expect
+0000B6r 1  EE rr rr             inc total
+0000B9r 1  D0 08                bne @t
+0000BBr 1  EE rr rr             inc total+1
+0000BEr 1  D0 03                bne @t
+0000C0r 1  EE rr rr             inc total+2
+0000C3r 1  AD rr rr     @t:     lda total               ; every 128 bytes: send a 2-byte "credit" like the player does
+0000C6r 1  29 7F                and #$7F
+0000C8r 1  D0 03                bne @nosend
+0000CAr 1  20 rr rr             jsr send2
+0000CDr 1               @nosend:
+0000CDr 1  E6 rr                inc rd
+0000CFr 1  D0 A8                bne main
+0000D1r 1  E6 rr                inc rd+1
+0000D3r 1  A5 rr                lda rd+1
+0000D5r 1  C9 48                cmp #>(RING+$800)
+0000D7r 1  D0 A0                bne main
+0000D9r 1  A9 40                lda #>RING
+0000DBr 1  85 rr                sta rd+1
+0000DDr 1  4C rr rr             jmp main
+0000E0r 1               
+0000E0r 1  A2 00        send2:  ldx #0
+0000E2r 1  A9 00        @n:     lda #0
+0000E4r 1  8D rr rr             sta tmo
+0000E7r 1  8D rr rr             sta tmo+1
+0000EAr 1  AD 01 DE     @w:     lda ACIA_STAT
+0000EDr 1  29 10                and #$10
+0000EFr 1  D0 0E                bne @go
+0000F1r 1  EE rr rr             inc tmo
+0000F4r 1  D0 F4                bne @w
+0000F6r 1  EE rr rr             inc tmo+1
+0000F9r 1  D0 EF                bne @w
+0000FBr 1  EE rr rr             inc txfail
+0000FEr 1  60                   rts
+0000FFr 1  A9 0A        @go:    lda #$0A
+000101r 1  8D 00 DE             sta ACIA_DATA
+000104r 1  E8                   inx
+000105r 1  E0 02                cpx #2
+000107r 1  D0 D9                bne @n
+000109r 1  EE rr rr             inc txcnt
+00010Cr 1  60                   rts
+00010Dr 1               
+00010Dr 1  48           nmi:    pha
+00010Er 1  EE rr rr             inc nmis
+000111r 1  D0 03                bne nmi1
+000113r 1  EE rr rr             inc nmis+1
+000116r 1  EA EA EA EA  nmi1:   .repeat 30
+00011Ar 1  EA EA EA EA  
+00011Er 1  EA EA EA EA  
+000134r 1                       nop
+000134r 1                       .endrepeat
+000134r 1  AD 0D DD             lda CIA2_ICR
+000137r 1  AD 01 DE             lda ACIA_STAT
+00013Ar 1  29 0C                and #$0C
+00013Cr 1  F0 2B                beq nmi_done
+00013Er 1  C9 08                cmp #$08
+000140r 1  F0 0D                beq nmi_rd
+000142r 1  C9 04                cmp #$04
+000144r 1  D0 06                bne nmi_both
+000146r 1  EE rr rr             inc phantom             ; overrun flag without data-register-full
+000149r 1  4C rr rr             jmp nmi_rd
+00014Cr 1  EE rr rr     nmi_both:  inc ovr                 ; overrun with data pending
+00014Fr 1  AD 00 DE     nmi_rd:    lda ACIA_DATA
+000152r 1  8D 00 40     st:     sta RING
+000155r 1  EE rr rr             inc st+1
+000158r 1  D0 0F                bne nmi_done
+00015Ar 1  EE rr rr             inc st+2
+00015Dr 1  AD rr rr             lda st+2
+000160r 1  C9 48                cmp #>(RING+$800)
+000162r 1  D0 05                bne nmi_done
+000164r 1  A9 40                lda #>RING
+000166r 1  8D rr rr             sta st+2
+000169r 1  68           nmi_done:  pla
+00016Ar 1  40                   rti
+00016Ar 1               
