@@ -9,3 +9,15 @@ c64/*.lst
 c64/*.map
 c64/*.lbl
 c64/*.o
+
+# Secretos (no versionar nunca; usar *.example como plantilla)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets.*
+!secrets.example.*
+credentials.json
