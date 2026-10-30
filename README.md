@@ -5,6 +5,8 @@
 **A Navidrome/Subsonic frontend for the Commodore 64 — a spinning vinyl with the real album cover**<br>
 **Un frontend Navidrome/Subsonic para Commodore 64: un vinilo girando con la portada real del álbum**
 
+[![License: MIT](https://img.shields.io/badge/license-MIT-2ea44f.svg)](LICENSE)
+
 <img src="docs/screenshot.png" alt="SIDVinyl: a spinning vinyl with the album cover as its label, track info and the SID mode status" width="640">
 
 [**English**](#english) · [**Español**](#español)
@@ -35,6 +37,7 @@ HTTP.
 - [How SID mode works](#how-sid-mode-works)
 - [Limitations](#limitations)
 - [Protocol](#protocol)
+- [License](#license)
 
 ## Audio modes
 
@@ -164,6 +167,12 @@ Bridge→C64 packets: `[type][len lo][len hi][payload]` with types HELLO, LIST, 
 COVER (32×640 B), DIGI (nibbles), SID (22 B/frame: 3 voices × 7 registers + volume),
 STOP, ERROR, VOL, DISC (static disc + tonearm sprites). See `bridge/protocol.py`.
 
+## License
+
+[MIT](LICENSE) © 2026 advenacodex
+
+[![Support me on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/advenacodex)
+
 ---
 
 # Español
@@ -187,6 +196,7 @@ convierte las portadas y codifica el audio, porque el C64 no habla HTTP.
 - [Cómo funciona el modo SID](#cómo-funciona-el-modo-sid)
 - [Limitaciones](#limitaciones)
 - [Protocolo](#protocolo)
+- [Licencia](#licencia)
 
 ## Modos de audio
 
@@ -318,3 +328,9 @@ NEXT 04, PREV 05, MODE 07, VOL 08, STOP 09, CREDIT 0A` (solo serie: unidades de 
 Paquetes bridge→C64: `[tipo][len lo][len hi][payload]` con tipos HELLO, LIST, TRACK,
 COVER (32×640 B), DIGI (nibbles), SID (22 B/frame: 3 voces × 7 registros + volumen), STOP,
 ERROR, VOL, DISC (disco estático + sprites del brazo). Ver `bridge/protocol.py`.
+
+## Licencia
+
+[MIT](LICENSE) © 2026 advenacodex
+
+[![Apóyame en Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/advenacodex)
