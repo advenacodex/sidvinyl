@@ -56,6 +56,7 @@ def main():
     frames = []
     for i in range(0, len(pcm), 1600):
         frames += enc.feed(pcm[i:i + 1600])
+    frames += enc.flush()
     print("frames", len(frames), "frame len", set(len(f) for f in frames))
     ok_b = ok_l = tot = 0
     drum_frames = 0
@@ -69,8 +70,19 @@ def main():
         mb, ml = tb[centre], tl[centre]
         if c1 & 1 and f1 > 0 and abs(12 * math.log2(f1 / hz_of(mb))) < 0.8: ok_b += 1
         if c2 & 1 and f2 > 0 and abs(12 * math.log2(f2 / hz_of(ml))) < 0.8: ok_l += 1
-        if c3 & 0x80: drum_frames += 1
-    print(f"bass ok {ok_b}/{tot} = {ok_b/tot:.0%}   lead ok {ok_l}/{tot} = {ok_l/tot:.0%}   noise(drum) frames {drum_frames}")
+        if (c3 & 0x81) == 0x81 or (c3 & 0x11) == 0x11 and f3 < 130: drum_frames += 1
+    print(f"bass ok {ok_b}/{tot} = {ok_b/tot:.0%}   lead ok {ok_l}/{tot} = {ok_l/tot:.0%}   drum frames {drum_frames}")
+    # hits: synthetic kicks at t = 0, 0.5, 1 ... and hats at 0.25, 0.75 ...; count drum bursts near them
+    bursts = []
+    for k, fr in enumerate(frames):
+        c3 = fr[18]
+        on = (c3 & 1) and ((c3 & 0x80) or ((c3 & 0x10) and (fr[14] | fr[15] << 8) * SID_CLOCK_PAL / 16777216.0 < 130))
+        was = k > 0 and frames[k - 1][18] & 1 and (frames[k - 1][18] & 0x90)
+        if on and not was:
+            bursts.append(k / 50.0)
+    hit = sum(1 for tt in np.arange(0.25, 7.8, 0.25) if any(abs(b - tt) < 0.09 for b in bursts))
+    print(f"drum bursts {len(bursts)} (expected ~31); on-grid hits {hit}/31")
+    assert ok_b / tot > 0.8 and ok_l / tot > 0.7 and hit >= 20, "chiptune analysis regressed"
     vols = [f[21] for f in frames]
     print("master volume range", min(vols), max(vols))
 

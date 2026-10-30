@@ -9,6 +9,7 @@ bridge browses the library, converts cover art into rotating multicolour label
 frames and streams either 4-bit digi audio or live SID register frames.
 """
 import argparse
+import collections
 import io
 import logging
 import os
@@ -35,6 +36,40 @@ CHUNK = 0.1           # seconds per audio packet
 
 
 
+class SidStream:
+    """Decodes and analyses a track in a worker thread, ahead of playback.
+
+    The encoder looks at the music with ~1.5 s of look-ahead, so the frames are produced
+    in blocks and queued here; the session pops them at playback rate."""
+    AHEAD = 30.0                      # seconds of frames to keep queued
+
+    def __init__(self, proc, enc):
+        self.proc, self.enc = proc, enc
+        self.frames = collections.deque()
+        self.done = False
+        self.stop = False
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def _run(self):
+        try:
+            while not self.stop:
+                while len(self.frames) > self.enc.fps * self.AHEAD and not self.stop:
+                    time.sleep(0.1)
+                pcm = audio.read_pcm(self.proc, self.enc.RATE // 2)
+                if len(pcm) == 0:
+                    break
+                self.frames.extend(self.enc.feed(pcm))
+            if not self.stop:
+                self.frames.extend(self.enc.flush())
+        except Exception:  # noqa: BLE001
+            log.exception("SID analysis failed")
+        finally:
+            self.done = True
+
+    def close(self):
+        self.stop = True
+
+
 class Session:
     def __init__(self, conn, addr, sub):
         self.conn, self.addr, self.sub = conn, addr, sub
@@ -56,6 +91,8 @@ class Session:
         self.cover_id = None
         self.proc = None
         self.enc = None
+        self.sid = None
+        self.sid_sent = 0
         self.t0 = 0.0
         self.produced = 0.0
         self.playing = False
@@ -184,8 +221,6 @@ class Session:
             elif cid == P.CMD_VOL:
                 d = a[0] - 256 if a[0] > 127 else a[0]
                 self.level = max(0, min(15, self.level + d))
-                if isinstance(self.enc, audio.ChiptuneEncoder):
-                    self.enc.vol_scale = self.level / 12.0
                 self.send(P.PKT_VOL, bytes([self.level]))
             elif cid == P.CMD_STOP:
                 self.last_seq = a[0]
@@ -227,6 +262,9 @@ class Session:
 
     # ---------------------------------------------------------------- playback
     def _kill(self):
+        if self.sid is not None:
+            self.sid.close()
+            self.sid = None
         if self.proc is not None:
             try:
                 self.proc.kill()
@@ -265,12 +303,13 @@ class Session:
         if self.mode == P.MODE_SID:
             rate, flt = audio.ChiptuneEncoder.RATE, audio.FILTER_SID
             self.enc = audio.ChiptuneEncoder(self.fps, self.clock)
-            self.enc.vol_scale = self.level / 12.0
         else:
             rate, flt = self.digi_rate, audio.FILTER_DIGI
             self.enc = audio.DigiEncoder()
         self.rate = rate
         self.proc = audio.start_decoder(self.sub.stream_url(song["id"]), rate, start, flt)
+        self.sid = SidStream(self.proc, self.enc) if self.mode == P.MODE_SID else None
+        self.sid_sent = 0
         self.t0 = time.monotonic()
         self.produced = 0.0
         self.playing = True
@@ -283,7 +322,30 @@ class Session:
             self.playing = False
             self.send(P.PKT_STOP, bytes([self.last_seq]))
 
+    def _pump_sid(self):
+        ahead = self.sid_sent / self.fps - (time.monotonic() - self.t0)
+        if ahead > LEAD:
+            time.sleep(min(0.05, ahead - LEAD))
+            return
+        q = self.sid.frames
+        out = []
+        while len(out) < int(self.fps * CHUNK) and q:
+            out.append(q.popleft())
+        if not out:
+            if self.sid.done and not q:
+                self._next_or_stop()
+                return
+            # analysis not ready yet: keep the playback clock from running away
+            self.t0 = time.monotonic() - self.sid_sent / self.fps
+            time.sleep(0.02)
+            return
+        scale = self.level / 12.0
+        self.sid_sent += len(out)
+        self.send(P.PKT_SID, b"".join(f[:21] + bytes([min(15, int(round(f[21] * scale)))]) for f in out))
+
     def _pump(self):
+        if self.sid is not None:
+            return self._pump_sid()
         ahead = self.produced - (time.monotonic() - self.t0)
         if ahead > LEAD:
             time.sleep(min(0.05, ahead - LEAD))
@@ -294,15 +356,10 @@ class Session:
             self._next_or_stop()
             return
         self.produced += len(pcm) / self.rate
-        if self.mode == P.MODE_SID:
-            frames = self.enc.feed(pcm)
-            if frames:
-                self.send(P.PKT_SID, b"".join(frames))
-        else:
-            gain = 10 ** ((self.level - 12) * 2.0 / 20.0)
-            data = self.enc.encode(pcm, gain)
-            if data:
-                self.send(P.PKT_DIGI, data)
+        gain = 10 ** ((self.level - 12) * 2.0 / 20.0)
+        data = self.enc.encode(pcm, gain)
+        if data:
+            self.send(P.PKT_DIGI, data)
 
 
 def serve(args, sub):

@@ -7,7 +7,7 @@ Navidrome (o cualquier servidor compatible con Subsonic) en un C64 con
 | Modo | Qué hace |
 |------|----------|
 | **DIGI** | Streaming real: 8 kHz, 4 bits por el volumen del SID (NMI de CIA2), con noise shaping y normalización. |
-| **SID** | Conversión en tiempo real a chiptune: voz 1/2 melodía y armonía (pitch por HPS), voz 3 bajo + batería (kick/snare/hat por flujo espectral). Aproximado, pero reconocible. |
+| **SID** | Conversión a chiptune con buffer y *look-ahead* (~1,5 s): voz 1 bajo, voz 2 melodía, voz 3 armonía + batería. Tono por Viterbi sobre saliencia armónica, notas segmentadas, dinámica real por nota y forma de onda según el timbre. Aproximado, pero reconocible. |
 
 ## Arquitectura
 
@@ -82,7 +82,7 @@ CIA2 (NMI) y UCI sobre sockets reales; las capturas quedan en `/tmp/sidvinyl_out
 - **No probado en una Ultimate real.** Verificado en el simulador y en VICE 3.7.1 (conexión, listado, ambos modos,
   pausa, volumen, siguiente/anterior, volver al menú, PAL). El UCI se implementó según la documentación
   de Ultimate; si algún detalle de timing difiere, `c64/uci.s` es el único sitio a ajustar.
-- Modo SID: aproximación por análisis espectral; funciona mejor con música poco densa.
+- Modo SID: aproximación por análisis espectral con 3 voces; funciona mejor con música poco densa. Al empezar una pista o cambiar de modo hay ~1 s de retardo mientras se llena el buffer de análisis (`bridge/sidenc.py`, tests/sidrender.py renderiza los frames a audio para comparar).
 - Audio DIGI a 4 bits/8 kHz: calidad "de época".
 - El volumen actúa en el bridge: con audio ya en cola tarda ~1 s en notarse; en pausa el bridge sigue enviando hasta llenar el buffer TCP.
 - Solo se muestran 20 álbumes por página, textos transliterados a ASCII (sin acentos).
